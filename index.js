@@ -6,12 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
     cors: {
-        origin: [
-            "http://localhost:3000",
-            "http://192.168.1.2:3000",
-            "https://trandinh0506.github.io",
-            "http://localhost:5500",
-        ],
+        origin: ["https://trandinh0506.github.io"],
         methods: ["GET", "POST", "PUT"],
         allowedHeaders: ["Access-Control-Allow-Origin"],
         credentials: true,
@@ -37,7 +32,6 @@ connection.getConnection((err, connect) => {
         return;
     }
     connect.query("SELECT * FROM user", (err, rows) => {
-        console.log("Query database");
         for (let i = 0; i < rows.length; i++) {
             Data[rows[i]["username"]] = [rows[i]["password"], rows[i]["name"]];
             UserName.push(rows[i]["username"]);
@@ -150,31 +144,25 @@ app.put("/rename", (req, res) => {
         res.send({ status: false, message: "Invalid username or password" });
     }
 });
-const createRoom = (StId, n) => {
-    const rooms = [];
-    for (let i = StId; i < n; i++) {
-        rooms.push({
-            id: i,
-            Player: [],
-            Viewer: [],
-        });
-    }
-    return rooms;
+const createRoom = (id, roomName = "") => {
+    return {
+        id,
+        name: roomName || `Room: ${id}`,
+        Player: [],
+        Viewer: [],
+    };
 };
-const createGameBoard = (StTd, n, time = [180, 180]) => {
-    let gameBoards = [];
-    for (let i = StTd; i < n; i++) {
-        let GB = Array.from(Array(20), () => Array(20).fill(""));
-        gameBoards.push({
-            GB,
-            turn: "X",
-            total: [...time],
-            time: [...time],
-            timerId: null,
-            startedTime: [],
-        });
-    }
-    return gameBoards;
+const createGameBoard = (time = [180, 180]) => {
+    const GB = Array.from(Array(20), () => Array(20).fill(""));
+    let gameBoard = {
+        GB,
+        turn: "X",
+        total: [...time],
+        time: [...time],
+        startedTime: [],
+        limit: time,
+    };
+    return gameBoard;
 };
 const checkWin = (board, player) => {
     const rows = board.length;
@@ -242,62 +230,71 @@ const checkWin = (board, player) => {
 
     return false;
 };
-const createMessage = (StId, n) => {
-    let messages = [];
-    for (let i = StId; i < n; i++) {
-        messages.push([]);
-    }
-    return messages;
-};
-const resetGameBoard = (id) => {
+
+const resetGameBoard = (id, time) => {
     GameBoards[id] = {
         GB: Array.from(Array(20), () => Array(20).fill("")),
         turn: "X",
-        total: [180, 180],
-        time: [180, 180],
-        timerId: null,
+        total: time,
+        time: time,
         startedTime: [],
+        limit: time,
     };
 };
-const GameBoards = [...createGameBoard(0, 50)];
-const rooms = [...createRoom(0, 50)];
-const messages = [...createMessage(0, 50)];
+const GameBoards = Array(20)
+    .fill(0)
+    .map(() => createGameBoard());
+const rooms = Array(20)
+    .fill(0)
+    .map((e, i) => createRoom(i));
+let rooms_full = null;
+const messages = Array(20)
+    .fill(0)
+    .map(() => []);
+
 io.on("connect", (socket) => {
-    console.log("user connected", socket.id);
     socket.on("connecting", (name) => {
-        console.log("name: ", name, "connected");
         SOCKETID[name] = socket.id;
     });
-
     socket.on("GetRooms", () => {
-        console.log("get room");
         socket.emit("roomsReceived", rooms);
     });
-    socket.on("subscribe", (room) => {
-        const RoomId = room.id;
-        console.log("subscribed", socket.id);
-        socket.join(RoomId);
-        console.log(room);
-        let id = parseInt(RoomId.slice(4)); // 4 -> "room"
-        if (room.type === "play") {
+    socket.on("createCostomRoom", ({ roomName, timeLimit }) => {
+        GameBoards.push(createGameBoard([timeLimit, timeLimit]));
+        rooms.push(createRoom(rooms.length, roomName));
+        messages.push([]);
+        io.emit("roomsReceived", rooms);
+        socket.emit("getCostomRoomId", rooms.length - 1);
+    });
+    socket.on("getTime", (id) => {
+        socket.emit("viewerRecievedTime", GameBoards[id].time);
+    });
+    socket.on("subscribe", ({ id, name, type }) => {
+        socket.join(`room${id}`);
+        if (type === "play") {
             if (rooms[id].Player.length < 2) {
-                console.log(room.name);
-                rooms[id].Player.push(room.name);
+                rooms[id].Player.push(name);
+                rooms_full = rooms.filter((e) => {
+                    return e.Player.length === 2;
+                }).length;
+
+                if (rooms.length - rooms_full <= 5) {
+                    GameBoards.push(createGameBoard());
+                    rooms.push(createRoom(rooms.length));
+                    messages.push([]);
+                    io.emit("roomsReceived", rooms);
+                }
             }
-        } else if (room.type === "view") rooms[id].Viewer.push(room.name);
+        } else if (type === "view") rooms[id].Viewer.push(name);
         io.emit("roomsReceived", rooms);
     });
-
     socket.on("GetGameBoard", (id) => {
-        console.log("get game board", `room${id}`);
         io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
     });
     socket.on("getDataRoom", (id) => {
-        console.log("get data room", `room${id}`);
         io.to(`room${id}`).emit("DataRoom", rooms[id]);
     });
     socket.on("start?", (id) => {
-        console.log(`room${id} starting game`);
         io.to(`room${id}`).emit("accept?");
     });
     socket.on("accepted", (id) => {
@@ -320,8 +317,12 @@ io.on("connect", (socket) => {
                 });
             } else {
                 io.to(`room${id}`).emit("win", "O");
-                resetGameBoard(id);
+                resetGameBoard(id, GameBoards[id].limit);
                 io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
+                io.to(`room${id}`).emit(
+                    "viewerRecievedTime",
+                    GameBoards[id].time
+                );
             }
         } else {
             if (GameBoards[id].time[1] > 0) {
@@ -335,8 +336,12 @@ io.on("connect", (socket) => {
                 });
             } else {
                 io.to(`room${id}`).emit("win", "X");
-                resetGameBoard(id);
+                resetGameBoard(id, GameBoards[id].limit);
                 io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
+                io.to(`room${id}`).emit(
+                    "viewerRecievedTime",
+                    GameBoards[id].time
+                );
             }
         }
     });
@@ -344,7 +349,6 @@ io.on("connect", (socket) => {
         io.to(`room${id}`).emit("viewerRecievedTime", GameBoards[id].time);
     });
     socket.on("move", ({ id, row, col, name }) => {
-        console.log(id, row, col, name);
         const turn = GameBoards[id].turn;
         if (turn === "X") {
             GameBoards[id].total[0] = GameBoards[id].time[0];
@@ -361,37 +365,35 @@ io.on("connect", (socket) => {
 
         if (checkWin(GameBoards[id].GB, turn)) {
             io.to(`room${id}`).emit("win", turn);
-            resetGameBoard(id);
+            resetGameBoard(id, GameBoards[id].limit);
             io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
+            io.to(`room${id}`).emit("viewerRecievedTime", GameBoards[id].time);
         }
     });
     socket.on("getAllMessages", (id) => {
-        console.log("getAllMessages", id);
         socket.emit("allMessagesReceived", messages[id]);
     });
     socket.on("sendData", ({ id, name, message }) => {
         messages[id].push({ name, message });
         io.to(`room${id}`).emit("receiveMessage", messages[id]);
-        console.log(`room${id}: ${name} : ${message}`);
     });
-    socket.on("unsubscribe", (room) => {
-        console.log("user unsubscribed");
-        const RoomId = room.id;
-        let id = parseInt(RoomId.slice(4)); // 4 -> "room"
-        console.log(id, rooms[id]);
-        if (room.type === "play") {
-            rooms[id].Player.splice(rooms[id].Player.indexOf(room.name), 1);
+    socket.on("unsubscribe", ({ id, type, name }) => {
+        if (type === "play") {
+            rooms[id].Player.splice(rooms[id].Player.indexOf(name), 1);
+            resetGameBoard(id, GameBoards[id].limit);
+            io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
+            io.to(`room${id}`).emit("resetTimer");
+            io.to(`room${id}`).emit("viewerRecievedTime", GameBoards[id].time);
         } else {
-            rooms[id].Viewer.splice(rooms[id].Viewer.indexOf(room.name), 1);
+            rooms[id].Viewer.splice(rooms[id].Viewer.indexOf(name), 1);
         }
-        socket.leave(RoomId);
+        socket.leave(`room${id}`);
         io.emit("roomsReceived", rooms);
         io.to(`room${id}`).emit("DataRoom", rooms[id]);
     });
     socket.on("disconnect", () => {
         let Name = "";
         let id;
-        console.log(socket.id, SOCKETID);
         for (const name in SOCKETID) {
             if (socket.id === SOCKETID[name]) {
                 SOCKETID[name] = "";
@@ -404,6 +406,12 @@ io.on("connect", (socket) => {
                 if (name === Name) {
                     room.Player.splice(room.Player.indexOf(name), 1);
                     id = room.id;
+                    resetGameBoard(id, GameBoards[id].limit);
+                    io.to(`room${id}`).emit("DataReceived", GameBoards[id]);
+                    io.to(`room${id}`).emit(
+                        "viewerRecievedTime",
+                        GameBoards[id].time
+                    );
                     break;
                 }
             }
@@ -417,10 +425,9 @@ io.on("connect", (socket) => {
         }
         io.emit("roomsReceived", rooms);
         io.to(`room${id}`).emit("DataRoom", rooms[id]);
-        console.log("user " + Name + " disconnected");
     });
 });
-const port = 8000 || process.env.PORT;
+const port = 8000;
 server.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server is running on port${port}`);
 });
