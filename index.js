@@ -420,7 +420,7 @@ io.on("connect", (socket) => {
         console.log("user " + Name + " disconnected");
     });
 });
-const port = 8000;
+const port = 8000 || process.env.PORT;
 server.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
