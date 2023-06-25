@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
     cors: {
-        origin: ["https://trandinh0506.github.io"],
+        origin: ["https://caro-six.vercel.app"],
         methods: ["GET", "POST", "PUT"],
         allowedHeaders: ["Access-Control-Allow-Origin"],
         credentials: true,
@@ -66,10 +66,20 @@ app.post("/login", (req, res) => {
                 );
             }
         } else {
-            res.send(JSON.stringify({ status: false }));
+            res.send(
+                JSON.stringify({
+                    status: false,
+                    messages: "Invalid User Name or Password",
+                })
+            );
         }
     } else {
-        res.send(JSON.stringify({ status: false }));
+        res.send(
+            JSON.stringify({
+                status: false,
+                messages: "Invalid User Name or Password",
+            })
+        );
     }
 });
 app.post("/signup", (req, res) => {
