@@ -1,26 +1,26 @@
 const express = require("express");
 const http = require("http");
 const socketIO = require("socket.io");
+require("dotenv").config();
 const cors = require("cors");
 const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
     cors: {
-        origin: ["https://caro-six.vercel.app"],
+        origin: process.env.ORIGIN,
         methods: ["GET", "POST", "PUT"],
         allowedHeaders: ["Access-Control-Allow-Origin"],
         credentials: true,
     },
 });
-
 const mysql = require("mysql");
 const connection = mysql.createPool({
     connectionLimit: 20,
-    host: "sql12.freemysqlhosting.net",
+    host: process.env.HOST,
     port: 3306,
-    user: "sql12628306",
-    password: "FPupv5ynzY",
-    database: "sql12628306",
+    user: process.env.USER,
+    password: process.env.PASSWORD,
+    database: process.env.DATABASE,
 });
 let Data = {};
 let UserName = [];
@@ -43,6 +43,7 @@ connection.getConnection((err, connect) => {
 });
 app.use(express.json());
 app.use(cors());
+app.get("/wakeup", (req, res) => res.sendStatus(200));
 app.post("/login", (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
@@ -69,7 +70,7 @@ app.post("/login", (req, res) => {
             res.send(
                 JSON.stringify({
                     status: false,
-                    messages: "Invalid User Name or Password",
+                    message: "Invalid User Name or Password",
                 })
             );
         }
@@ -77,7 +78,7 @@ app.post("/login", (req, res) => {
         res.send(
             JSON.stringify({
                 status: false,
-                messages: "Invalid User Name or Password",
+                message: "Invalid User Name or Password",
             })
         );
     }
@@ -113,11 +114,11 @@ app.post("/signup", (req, res) => {
                 UserName.push(username);
                 Names.push(name);
                 Data[username] = [password, name];
-                res.send({ status: true });
                 SOCKETID[name] = "";
             }
         );
         connect.release();
+        res.send({ status: true, message: "Sign Up Was Successfully!" });
     });
 });
 app.put("/rename", (req, res) => {
@@ -127,7 +128,7 @@ app.put("/rename", (req, res) => {
             if (Names.includes(newName)) {
                 res.send({
                     status: false,
-                    message: `"${newName}" already exists`,
+                    message: `Name: "${newName}" is already exists`,
                 });
             } else {
                 connection.getConnection((err, connect) => {
@@ -433,11 +434,11 @@ io.on("connect", (socket) => {
                 }
             }
         }
+        console.log(Name);
         io.emit("roomsReceived", rooms);
         io.to(`room${id}`).emit("DataRoom", rooms[id]);
     });
 });
-const port = 8000;
-server.listen(port, () => {
-    console.log(`Server is running on port: ${port}`);
+server.listen(8000, () => {
+    console.log("Deployed");
 });
