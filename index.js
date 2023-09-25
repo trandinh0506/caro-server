@@ -22,10 +22,12 @@ const connection = mysql.createPool({
     password: process.env.PASSWORD,
     database: process.env.DATABASE,
 });
+
 let Data = {};
 let UserName = [];
 let Names = [];
 let SOCKETID = {};
+
 connection.getConnection((err, connect) => {
     if (err) {
         console.error("Error acquiring connection from the pool:", err);
@@ -108,7 +110,8 @@ app.post("/signup", (req, res) => {
     connection.getConnection((err, connect) => {
         if (err) throw err;
         connect.query(
-            `INSERT INTO user (username, password, name) VALUES ("${username}", "${password}", "${name}")`,
+            "INSERT INTO user (username, password, name) VALUES (?, ?, ?)",
+            [username, password, name],
             (e) => {
                 if (e) throw e;
                 UserName.push(username);
@@ -171,7 +174,7 @@ const createGameBoard = (time = [180, 180]) => {
         total: [...time],
         time: [...time],
         startedTime: [],
-        limit: time,
+        limit: [...time],
     };
     return gameBoard;
 };
@@ -246,10 +249,10 @@ const resetGameBoard = (id, time) => {
     GameBoards[id] = {
         GB: Array.from(Array(20), () => Array(20).fill("")),
         turn: "X",
-        total: time,
-        time: time,
+        total: [...time],
+        time: [...time],
         startedTime: [],
-        limit: time,
+        limit: [...time],
     };
 };
 const GameBoards = Array(20)
@@ -314,6 +317,7 @@ io.on("connect", (socket) => {
             new Date().getTime(),
             new Date().getTime(),
         ];
+        console.log(GameBoards[id].startedTime);
     });
     socket.on("updateTime", (id) => {
         if (GameBoards[id].turn === "X") {
